@@ -4,34 +4,41 @@
 // Author: Naosyth
 // naosyth@gmail.com
 
+// Block Names
+string ComputerName = "FC Computer";
+string GyroName = "FC Gyro"; // Must be positioned forward of computer
+string RemoteControlName = "FC Remote"; // Above computer
+string TimerName = "FC Timer"; // Right of computer
+string TextPanelName = "Screen Two";
+
 // T-1 Variables
 Vector3 oldPos = new Vector3(0.0, 0.0, 0.0);
 long oldTime = System.DateTime.Now.Ticks;
 
 // Control constants
-double setPointForward = 0.0;
-double setPointRight = 0.0;
-double maxPitch = 45;
-double maxRoll = 45;
+double MaxPitch = 45;
+double MaxRoll = 45;
 
 // Blocks
-IMyProgrammableBlock computer;
-IMyRemoteControl remote;
-IMyTimerBlock timer;
-IMyGyro gyro;
+IMyProgrammableBlock Computer;
+IMyRemoteControl Remote;
+IMyTimerBlock Timer;
+IMyGyro Gyro;
+IMyTextPanel Screen;
 
 void Main() {
-  if (computer == null)
+  if (Computer == null)
     Initialize();
 
   StopVehicle();
 }
 
 void Initialize() {
-  computer = GridTerminalSystem.GetBlockWithName("PID") as IMyProgrammableBlock;
-  gyro = GridTerminalSystem.GetBlockWithName("Gyro") as IMyGyro;
-  remote = GridTerminalSystem.GetBlockWithName("Remote") as IMyRemoteControl;
-  timer = GridTerminalSystem.GetBlockWithName("Timer") as IMyTimerBlock;
+  Computer = GridTerminalSystem.GetBlockWithName(ComputerName) as IMyProgrammableBlock;
+  Remote = GridTerminalSystem.GetBlockWithName(RemoteControlName) as IMyRemoteControl;
+  Timer = GridTerminalSystem.GetBlockWithName(TimerName) as IMyTimerBlock;
+  Gyro = GridTerminalSystem.GetBlockWithName(GyroName) as IMyGyro;
+  Screen = GridTerminalSystem.GetBlockWithName(TextPanelName) as IMyTextPanel;
 }
 
 void StopVehicle() {
@@ -40,10 +47,10 @@ void StopVehicle() {
   double dt = now - oldTime;
 
   // Get current position
-  Vector3 computerPos = computer.GetPosition();
-  Vector3 remotePos = remote.GetPosition();
-  Vector3 timerPos = timer.GetPosition();
-  Vector3 gyroPos = gyro.GetPosition();
+  Vector3 computerPos = Computer.GetPosition();
+  Vector3 remotePos = Remote.GetPosition();
+  Vector3 timerPos = Timer.GetPosition();
+  Vector3 gyroPos = Gyro.GetPosition();
 
   // Get delta position
   Vector3 deltaPos = computerPos - oldPos;
@@ -55,7 +62,7 @@ void StopVehicle() {
   Vector3 rightVec = Vector3.Normalize(timerPos - computerPos);
 
   // Get gravity vector
-  Vector3 gravityVec = Vector3.Multiply(Vector3.Normalize(remote.GetNaturalGravity()), -1);
+  Vector3 gravityVec = Vector3.Multiply(Vector3.Normalize(Remote.GetNaturalGravity()), -1);
 
   // Determine speed forward and sideways in m/s
   double speedForward = Vector3.Dot(deltaPos, forwardVec) / dt * 1000;
@@ -65,43 +72,32 @@ void StopVehicle() {
   double pitch = Vector3.Dot(gravityVec, forwardVec) / (gravityVec.Length() * forwardVec.Length()) * 90;
   double roll = Vector3.Dot(gravityVec, rightVec) / (gravityVec.Length() * rightVec.Length()) * 90;
 
-  double scaledMaxPitch = Math.Atan(speedForward / 4) / (Math.PI / 2) * maxPitch;
-  double scaledMaxRoll = Math.Atan(speedRight / 4) / (Math.PI / 2) * maxRoll;
+  double scaledMaxPitch = Math.Atan(speedForward / 4) / (Math.PI / 2) * MaxPitch;
+  double scaledMaxRoll = Math.Atan(speedRight / 4) / (Math.PI / 2) * MaxRoll;
 
-  float pitchRate = (float)((Math.Abs(pitch - scaledMaxPitch) / maxPitch) * 4);
-  float rollRate = (float)((Math.Abs(roll - scaledMaxRoll) / maxRoll) * 4);
+  float pitchRate = (float)((Math.Abs(pitch - scaledMaxPitch) / MaxPitch) * 4);
+  float rollRate = (float)((Math.Abs(roll - scaledMaxRoll) / MaxRoll) * 4);
 
   if (Math.Abs(speedForward) < 0.01)
-    gyro.SetValueFloat("Pitch", 0.0f);
-  else if (pitch < scaledMaxPitch)
-    gyro.SetValueFloat("Pitch", pitchRate);
+    Gyro.SetValueFloat("Pitch", 0.0f);
   else
-    gyro.SetValueFloat("Pitch", -1 * pitchRate);
+    Gyro.SetValueFloat("Pitch", pitchRate * Math.Sign(scaledMaxPitch - pitch));
 
   if (Math.Abs(speedRight) < 0.01)
-    gyro.SetValueFloat("Roll", 0.0f);
-  else if (roll < scaledMaxRoll)
-    gyro.SetValueFloat("Roll", -1 * rollRate);
+    Gyro.SetValueFloat("Roll", 0.0f);
   else
-    gyro.SetValueFloat("Roll", rollRate);
-
+    Gyro.SetValueFloat("Roll", rollRate * Math.Sign(roll - scaledMaxRoll));
 
   // Get screen for debugging purposes
-  var screens = new List<IMyTerminalBlock>();
-  GridTerminalSystem.GetBlocksOfType<IMyTextPanel>(screens);
-  if (screens.Count > 0) {
-    IMyTextPanel screen = screens[0] as IMyTextPanel;
-
+  if (Screen != null) {
     // Print debug info
-    screen.WritePublicText(
-      "Speed: " + speed +
-      "\nForward: " + speedForward +
-      "\nRight: " + speedRight +
-      "\n\nroll: " + roll +
-      "\npitch: " + pitch +
-      "\nmax roll: " + scaledMaxRoll +
-      "\nmax pitch: " + scaledMaxPitch +
-      "\n\ndt: " + dt);
+    Screen.WritePublicText(
+      "Speed: " + String.Format("{0:000.0}", speed) + " m/s" +
+      "\nForward: " + String.Format("{0:000.0}", speedForward) + " m/s" +
+      "\nRight: " + String.Format("{0:000.0}", speedRight) + " m/s" +
+      "\n\nRoll: " + String.Format("{0:0}", roll) + " degrees" +
+      "\nPitch: " + String.Format("{0:0}", pitch) + " degrees" +
+      "\n\nAuto Braking: " + (Gyro.GyroOverride ? "Enabled" : "Disabled"));
   }
 
   // Persist variables
