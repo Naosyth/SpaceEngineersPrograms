@@ -9,10 +9,10 @@ Vector3 oldPos = new Vector3(0.0, 0.0, 0.0);
 long oldTime = System.DateTime.Now.Ticks;
 
 // PID loop parameters
-double Kp = 1.0;
+double Kp = 0.5;
 double Ki = 0.0;
-double Kd = 1000.0;
-double gyroCoefficient = 0.25;
+double Kd = 5.0;
+double gyroCoefficient = 2.0;
 
 // PID variables
 double oldErrForward = 0.0;
@@ -23,8 +23,8 @@ double integralRight = 0.0;
 // Control constants
 double setPointForward = 0.0;
 double setPointRight = 0.0;
-double maxPitch = 70;
-double maxRoll = 70;
+double maxPitch = 30;
+double maxRoll = 30;
 
 // Blocks
 IMyProgrammableBlock computer;
@@ -79,14 +79,14 @@ void StopVehicle() {
 
   // Calculate forward PID
   double errForward = setPointForward - speedForward;
-  integralForward += errForward * dt;
-  double derivativeForward = (errForward - oldErrForward) / dt;
+  integralForward += errForward;
+  double derivativeForward = (errForward - oldErrForward);
   double outForward = Kp*errForward + Ki*integralForward + Kd*derivativeForward;
 
   // Calculate right PID
   double errRight = setPointRight - speedRight;
-  integralRight += errRight * dt;
-  double derivativeRight = (errRight - oldErrRight) / dt;
+  integralRight += errRight;
+  double derivativeRight = (errRight - oldErrRight);
   double outRight = Kp*errRight + Ki*integralRight + Kd*derivativeRight;
 
   // Use output to control gyro
