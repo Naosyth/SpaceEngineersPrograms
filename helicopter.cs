@@ -8,23 +8,11 @@
 Vector3 oldPos = new Vector3(0.0, 0.0, 0.0);
 long oldTime = System.DateTime.Now.Ticks;
 
-// PID loop parameters
-double Kp = 0.5;
-double Ki = 0.0;
-double Kd = 5.0;
-double gyroCoefficient = 2.0;
-
-// PID variables
-double oldErrForward = 0.0;
-double oldErrRight = 0.0;
-double integralForward = 0.0;
-double integralRight = 0.0;
-
 // Control constants
 double setPointForward = 0.0;
 double setPointRight = 0.0;
-double maxPitch = 30;
-double maxRoll = 30;
+double maxPitch = 45;
+double maxRoll = 45;
 
 // Blocks
 IMyProgrammableBlock computer;
@@ -69,36 +57,34 @@ void StopVehicle() {
   // Get gravity vector
   Vector3 gravityVec = Vector3.Multiply(Vector3.Normalize(remote.GetNaturalGravity()), -1);
 
-  // Determine roll and pitch in degrees
-  double pitch = Vector3.Dot(gravityVec, forwardVec) / (gravityVec.Length() * forwardVec.Length()) * 90;
-  double roll = Vector3.Dot(gravityVec, rightVec) / (gravityVec.Length() * rightVec.Length()) * 90;
-
   // Determine speed forward and sideways in m/s
   double speedForward = Vector3.Dot(deltaPos, forwardVec) / dt * 1000;
   double speedRight = Vector3.Dot(deltaPos, rightVec) / dt * 1000;
 
-  // Calculate forward PID
-  double errForward = setPointForward - speedForward;
-  integralForward += errForward;
-  double derivativeForward = (errForward - oldErrForward);
-  double outForward = Kp*errForward + Ki*integralForward + Kd*derivativeForward;
+  // Determine roll and pitch in degrees
+  double pitch = Vector3.Dot(gravityVec, forwardVec) / (gravityVec.Length() * forwardVec.Length()) * 90;
+  double roll = Vector3.Dot(gravityVec, rightVec) / (gravityVec.Length() * rightVec.Length()) * 90;
 
-  // Calculate right PID
-  double errRight = setPointRight - speedRight;
-  integralRight += errRight;
-  double derivativeRight = (errRight - oldErrRight);
-  double outRight = Kp*errRight + Ki*integralRight + Kd*derivativeRight;
+  double scaledMaxPitch = Math.Atan(speedForward / 4) / (Math.PI / 2) * maxPitch;
+  double scaledMaxRoll = Math.Atan(speedRight / 4) / (Math.PI / 2) * maxRoll;
 
-  // Use output to control gyro
-  if (Math.Abs(pitch) < maxPitch || Math.Sign(pitch) == Math.Sign(outForward))
-    gyro.SetValueFloat("Pitch", (float)(-1*outForward*gyroCoefficient));
+  float pitchRate = (float)((Math.Abs(pitch - scaledMaxPitch) / maxPitch) * 4);
+  float rollRate = (float)((Math.Abs(roll - scaledMaxRoll) / maxRoll) * 4);
+
+  if (Math.Abs(speedForward) < 0.01)
+    gyro.SetValueFloat("Pitch", 0.0f);
+  else if (pitch < scaledMaxPitch)
+    gyro.SetValueFloat("Pitch", pitchRate);
   else
-    gyro.SetValueFloat("Pitch", 0);
+    gyro.SetValueFloat("Pitch", -1 * pitchRate);
 
-  if (Math.Abs(roll) < maxRoll || Math.Sign(roll) == Math.Sign(outRight))
-    gyro.SetValueFloat("Roll", (float)(1*outRight*gyroCoefficient));
+  if (Math.Abs(speedRight) < 0.01)
+    gyro.SetValueFloat("Roll", 0.0f);
+  else if (roll < scaledMaxRoll)
+    gyro.SetValueFloat("Roll", -1 * rollRate);
   else
-    gyro.SetValueFloat("Roll", 0);
+    gyro.SetValueFloat("Roll", rollRate);
+
 
   // Get screen for debugging purposes
   var screens = new List<IMyTerminalBlock>();
@@ -108,20 +94,17 @@ void StopVehicle() {
 
     // Print debug info
     screen.WritePublicText(
-      "PID Output Forward: " + outForward +
-      "\nPid Output Right: " + outRight +
-      "\n\ngravity: " + gravityVec +
-      "\nspeed: " + speed +
-      "\nroll: " + roll +
+      "Speed: " + speed +
+      "\nForward: " + speedForward +
+      "\nRight: " + speedRight +
+      "\n\nroll: " + roll +
       "\npitch: " + pitch +
-      "\n\ndt: " + dt +
-      "\n\nForward: " + speedForward +
-      "\nRight: " + speedRight);
+      "\nmax roll: " + scaledMaxRoll +
+      "\nmax pitch: " + scaledMaxPitch +
+      "\n\ndt: " + dt);
   }
 
   // Persist variables
   oldTime = now;
   oldPos = computerPos;
-  oldErrForward = errForward;
-  oldErrRight = errRight;
 }
