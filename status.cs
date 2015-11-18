@@ -49,7 +49,7 @@ void DisplayComponentStatus() {
   Screen.WritePublicText(
     "Dampeners: " + (Cockpit.DampenersOverride ? "Enabled" : "Disabled") +
     "\n\nConnector: " + (Connector.IsLocked ? "Locked" : "Unlocked") + 
-    "\nProjector: " + (Projector.Enabled ? "Enabled" : "Disabled"));
+    "\n\nProjector: " + (Projector.Enabled ? "Enabled" : "Disabled"));
 }
 
 void DisplayOxygenStatus() {

@@ -11,7 +11,6 @@ string TextPanelName = "";
 
 // T-1 Variables
 Vector3 oldPos = new Vector3(0.0, 0.0, 0.0);
-//long oldTime = System.DateTime.Now.Ticks;
 
 // Control constants
 double MaxPitch = 45;
@@ -43,12 +42,13 @@ void Initialize() {
 
 void StopVehicle() {
   // Get current time and change in time
-  //long now = System.DateTime.Now.Ticks / System.TimeSpan.TicksPerMillisecond;
   double dt = 1000 / 60; //now - oldTime;
 
   // Get delta position
   Vector3 pos = Remote.GetPosition();
   Vector3 deltaPos = pos - oldPos;
+  oldPos = pos;
+  
   double speed = deltaPos.Length() / dt * 1000;
 
   // Get orientation vectors
@@ -62,8 +62,10 @@ void StopVehicle() {
   double gravity = Remote.GetNaturalGravity().Length() / 9.81;
 
   if (float.IsNaN(gravityVec.GetDim(0))) {
-    if (Screen != null)
-      Screen.WritePublicText("Not in a gravity field");
+    if (Screen != null) {
+      Screen.WritePublicText("No Gravity" + 
+        "\n\nSpeed: " + String.Format("{0:000.0}", speed) + " m/s");
+    }
     return;
   }
 
@@ -110,8 +112,4 @@ void StopVehicle() {
       "\n\nGravity: " + String.Format("{0:0.00}", gravity) + " m/s^2" +
       "\n\nAuto Braking: " + (Gyro.GyroOverride ? "Enabled" : "Disabled"));
   }
-
-  // Persist variables
-  //oldTime = now;
-  oldPos = pos;
 }
