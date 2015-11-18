@@ -112,7 +112,7 @@ void StopVehicle() {
       "\nUp: " + String.Format("{0:000.0}", speedUp) + " m/s" +
       "\n\nRoll: " + String.Format("{0:0}", roll) + " degrees" +
       "\nPitch: " + String.Format("{0:0}", pitch) + " degrees" +
-      "\n\nGravity: " + String.Format("{0:0.00}", gravity) + " m/s^2" +
+      "\n\nGravity: " + String.Format("{0:0.00}", gravity) + " g" +
       "\n\nAuto Braking: " + (Gyro.GyroOverride ? "Enabled" : "Disabled"));
   }
 }
