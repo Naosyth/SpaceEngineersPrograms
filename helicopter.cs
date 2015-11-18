@@ -48,7 +48,7 @@ void StopVehicle() {
   Vector3 pos = Remote.GetPosition();
   Vector3 deltaPos = pos - oldPos;
   oldPos = pos;
-  
+
   double speed = deltaPos.Length() / dt * 1000;
 
   // Get orientation vectors
@@ -57,6 +57,11 @@ void StopVehicle() {
   Vector3 forwardVec = orientation.Forward;
   Vector3 rightVec = orientation.Right;
 
+  // Determine speed forward and sideways in m/s
+  double speedForward = Vector3.Dot(deltaPos, forwardVec) / dt * 1000;
+  double speedRight = Vector3.Dot(deltaPos, rightVec) / dt * 1000;
+  double speedUp = Vector3.Dot(deltaPos, normalVec) / dt * 1000;
+
   // Get gravity vector
   Vector3 gravityVec = -Vector3.Normalize(Remote.GetNaturalGravity());
   double gravity = Remote.GetNaturalGravity().Length() / 9.81;
@@ -64,15 +69,13 @@ void StopVehicle() {
   if (float.IsNaN(gravityVec.GetDim(0))) {
     if (Screen != null) {
       Screen.WritePublicText("No Gravity" + 
-        "\n\nSpeed: " + String.Format("{0:000.0}", speed) + " m/s");
+        "\n\nSpeed: " + String.Format("{0:000.0}", speed) + " m/s" +
+        "\nForward: " + String.Format("{0:000.0}", speedForward) + " m/s" +
+        "\nRight: " + String.Format("{0:000.0}", speedRight) + " m/s" +
+        "\nUp: " + String.Format("{0:000.0}", speedUp) + " m/s");
     }
     return;
   }
-
-  // Determine speed forward and sideways in m/s
-  double speedForward = Vector3.Dot(deltaPos, forwardVec) / dt * 1000;
-  double speedRight = Vector3.Dot(deltaPos, rightVec) / dt * 1000;
-  double speedUp = Vector3.Dot(deltaPos, normalVec) / dt * 1000;
 
   // Determine roll and pitch in degrees
   double pitch = Vector3.Dot(gravityVec, forwardVec) / (gravityVec.Length() * forwardVec.Length()) * 90;
