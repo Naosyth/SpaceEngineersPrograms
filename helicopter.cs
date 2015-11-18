@@ -87,13 +87,11 @@ void StopVehicle() {
   for (int i = 0; i < Gyros.Count; i++) {
     var g = Gyros[i];
     g.Orientation.GetMatrix(out localOrientation);
-    var localPitch = localOrientation.Right * rotationVec;
-    var localRoll = localOrientation.Forward * rotationVec;
-    var localYaw = localOrientation.Up * rotationVec;
+    var rotVec = Vector3.Transform(rotationVec, localOrientation);
 
-    Gyros[i].SetValueFloat("Pitch", localPitch.GetDim(0));
-    Gyros[i].SetValueFloat("Roll", localRoll.GetDim(2));
-    Gyros[i].SetValueFloat("Yaw", localYaw.GetDim(1));
+    Gyros[i].SetValueFloat("Pitch", (float)rotVec.GetDim(0));
+    Gyros[i].SetValueFloat("Yaw", (float)-rotVec.GetDim(1));
+    Gyros[i].SetValueFloat("Roll", (float)-rotVec.GetDim(2));
     Gyros[i].SetValueBool("Override", Gyro.GyroOverride);
   }
 
