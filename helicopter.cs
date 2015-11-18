@@ -62,7 +62,8 @@ void StopVehicle() {
   double gravity = Remote.GetNaturalGravity().Length() / 9.81;
 
   if (float.IsNaN(gravityVec.GetDim(0))) {
-    Screen.WritePublicText("Not in a gravity field");
+    if (Screen != null)
+      Screen.WritePublicText("Not in a gravity field");
     return;
   }
 
