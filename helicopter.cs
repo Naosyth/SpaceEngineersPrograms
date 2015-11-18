@@ -16,7 +16,7 @@ Vector3 oldPos = new Vector3(0.0, 0.0, 0.0);
 // Control constants
 double MaxPitch = 45;
 double MaxRoll = 45;
-double GyroSpeedScale = 4.0;
+double GyroSpeedScale = 0.5; // <---- Adjust this! The more gyros you have, the smaller it should be.
 
 // Blocks
 IMyRemoteControl Remote;
@@ -84,10 +84,12 @@ void StopVehicle() {
   Vector3 rotationVec = new Vector3(pitchRate, 0, rollRate);
 
   Matrix localOrientation;
+  Screen.WritePublicText("");
   for (int i = 0; i < Gyros.Count; i++) {
     var g = Gyros[i];
     g.Orientation.GetMatrix(out localOrientation);
-    var rotVec = Vector3.Transform(rotationVec, localOrientation);
+
+    var rotVec = Vector3.Transform(rotationVec, MatrixD.Transpose(localOrientation));
 
     Gyros[i].SetValueFloat("Pitch", (float)rotVec.GetDim(0));
     Gyros[i].SetValueFloat("Yaw", (float)-rotVec.GetDim(1));
