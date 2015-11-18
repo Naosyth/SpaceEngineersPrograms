@@ -5,9 +5,9 @@
 // naosyth@gmail.com
 
 // Block Names
-string GyroName = "FC Gyro";
-string RemoteControlName = "FC Remote";
-string TextPanelName = "Screen Two";
+string GyroName = "AH Gyro";
+string RemoteControlName = "AH Remote";
+string TextPanelName = "";
 
 // T-1 Variables
 Vector3 oldPos = new Vector3(0.0, 0.0, 0.0);
