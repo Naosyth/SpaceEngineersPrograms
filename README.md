@@ -1,2 +1,2 @@
 # SpaceEngineersPrograms
-A collections of in-game programs for Space Engineers
+A collection of in-game programs for Space Engineers.
