@@ -9,9 +9,10 @@ string CockpitName = "Cockpit";
 string ConnectorName = "Connector";
 string TextPanelName = "Screen One";
 string AirVentName = "Air Vent";
-string AntennaName = "Planetary Scout";
+string AntennaName = "Kestral Dropship";
 string BeaconName = "Beacon";
 string ProjectorName = "Projector";
+string DetectorName = "Ore Detector";
 
 // Blocks
 IMyCockpit Cockpit;
@@ -21,6 +22,7 @@ IMyAirVent Vent;
 IMyRadioAntenna Antenna;
 IMyBeacon Beacon;
 IMyProjector Projector;
+IMyOreDetector Detector;
 
 int bullets = 0;
 int missiles = 0;
@@ -32,6 +34,7 @@ void Main() {
   DisplayComponentStatus();
   DisplayOxygenStatus();
   DisplayComStatus();
+  DisplayOtherStatus();
   DisplayAmmoCount();
 }
 
@@ -43,13 +46,13 @@ void Initialize() {
   Antenna = GridTerminalSystem.GetBlockWithName(AntennaName) as IMyRadioAntenna;
   Beacon = GridTerminalSystem.GetBlockWithName(BeaconName) as IMyBeacon;
   Projector = GridTerminalSystem.GetBlockWithName(ProjectorName) as IMyProjector;
+  Detector = GridTerminalSystem.GetBlockWithName(DetectorName) as IMyOreDetector;
 }
 
 void DisplayComponentStatus() {
   Screen.WritePublicText(
     "Dampeners: " + (Cockpit.DampenersOverride ? "Enabled" : "Disabled") +
-    "\n\nConnector: " + (Connector.IsLocked ? "Locked" : "Unlocked") + 
-    "\n\nProjector: " + (Projector.Enabled ? "Enabled" : "Disabled"));
+    "\n\nConnector: " + (Connector.IsLocked ? "Locked" : "Unlocked"));
 }
 
 void DisplayOxygenStatus() {
@@ -74,6 +77,12 @@ void DisplayComStatus() {
     "\n\nAntenna: " + (Antenna.Enabled ? Antenna.Radius + " m" : "Disabled") + 
     "\nBeacon: " + (Beacon.Enabled ? Beacon.Radius + " m" : "Disabled"),
     true);
+}
+
+void DisplayOtherStatus() {
+  Screen.WritePublicText(
+    "\n\nProjector: " + (Projector.Enabled ? "Enabled" : "Disabled") + 
+    "\nOre Detector: " + (Detector.Enabled ? "Enabled" : "Disabled"), true);
 }
 
 void DisplayAmmoCount() {
