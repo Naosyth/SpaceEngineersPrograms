@@ -49,11 +49,21 @@ IMyGyro gyro; // Main gyro, used to control auto hover on/off status
 IMyTextPanel screen;
 List<IMyGyro> gyros;
 
-bool Initialized = false;
+bool initialized = false;
 
-void Main() {
-  if (!Initialized)
+// Can be set by passing argument to programming block
+int desiredSpeedForward = 0;
+
+void Main(string arguments) {
+  if (!initialized)
     Initialize();
+
+  // May add more args later
+  if (arguments != "") {
+    var args = arguments.Split(',');
+    var setForward = int.Parse(args[0]);
+    desiredSpeedForward = (setForward == 0 ? 0 : desiredSpeedForward + setForward);
+  }
 
   StopVehicle();
 }
@@ -71,7 +81,7 @@ void Initialize() {
   gyros.Insert(0, gyro); // Make sure the master gyro is head of list
   gyros = gyros.GetRange(0, GyroCount);
 
-  Initialized = true;
+  initialized = true;
 }
 
 void StopVehicle() {
@@ -109,6 +119,13 @@ void StopVehicle() {
         "\n  R/L: " + String.Format("{0:000}", speedRight) +
         "\n  U/D: " + String.Format("{0:000}", speedUp));
     }
+
+    // Automatically disable gyro override if no gravity is present
+    if (gyro.GyroOverride) {
+      for (int i = 0; i < gyros.Count; i++)
+        gyros[i].SetValueBool("Override", false);
+    }
+
     return;
   }
 
@@ -117,7 +134,7 @@ void StopVehicle() {
   double roll = Vector3.Dot(gravityVec, rightVec) / (gravityVec.Length() * rightVec.Length()) * 90;
 
   // Scale desired pitch based on speed
-  double desiredPitch = Math.Atan(speedForward / GyroResponsiveness) / (Math.PI / 2) * MaxPitch;
+  double desiredPitch = Math.Atan((speedForward - desiredSpeedForward) / GyroResponsiveness) / (Math.PI / 2) * MaxPitch;
   double desiredRoll = Math.Atan(speedRight / GyroResponsiveness) / (Math.PI / 2) * MaxRoll;
 
   // Scale gyro rate based on difference bewteen the current and desired angle
@@ -160,3 +177,5 @@ void StopVehicle() {
       "\nGravity: " + String.Format("{0:0.00}", gravity) + " g");
   }
 }
+
+
