@@ -32,16 +32,16 @@
 // Block Names
 string GyroName = "AH Gyro";
 string RemoteControlName = "AH Remote";
-string TextPanelName = "";
+string TextPanelName = "Screen Two";
 
 // T-1 Variables
 Vector3 oldPos = new Vector3(0.0, 0.0, 0.0);
 
 // Control constants
-double MaxPitch = 60;
-double MaxRoll = 60;
-double GyroSpeedScale = 1.0; // Any positive non-zero number
-int GyroResponsiveness = 4; // Any positive non-zero integer 
+double MaxPitch = 67.5;
+double MaxRoll = 67.5;
+int GyroResponsiveness = 2; // Any positive non-zero integer 
+int GyroCount = 3; // Number of gyros to use for auto hover
 
 // Blocks
 IMyRemoteControl Remote;
@@ -64,8 +64,10 @@ void Initialize() {
     Screen = GridTerminalSystem.GetBlockWithName(TextPanelName) as IMyTextPanel;
 
   var l = new List<IMyTerminalBlock>();
-  GridTerminalSystem.GetBlocksOfType<IMyGyro>(l, x => x.CubeGrid == Me.CubeGrid);
+  GridTerminalSystem.GetBlocksOfType<IMyGyro>(l, x => x.CubeGrid == Me.CubeGrid && x != Gyro);
   Gyros = l.ConvertAll(x => (IMyGyro)x);
+  Gyros.Insert(0, Gyro); // Make sure the master gyro is included after truncation
+  Gyros = Gyros.GetRange(0, GyroCount);
 }
 
 void StopVehicle() {
@@ -109,11 +111,12 @@ void StopVehicle() {
   double pitch = Vector3.Dot(gravityVec, forwardVec) / (gravityVec.Length() * forwardVec.Length()) * 90;
   double roll = Vector3.Dot(gravityVec, rightVec) / (gravityVec.Length() * rightVec.Length()) * 90;
 
-  double scaledMaxPitch = Math.Atan(speedForward / GyroResponsiveness) / (Math.PI / 2) * MaxPitch;
-  double scaledMaxRoll = Math.Atan(speedRight / GyroResponsiveness) / (Math.PI / 2) * MaxRoll;
+  // Scale max pitch based on speed
+  double desiredPitch = Math.Atan(speedForward / GyroResponsiveness) / (Math.PI / 2) * MaxPitch;
+  double desiredRoll = Math.Atan(speedRight / GyroResponsiveness) / (Math.PI / 2) * MaxRoll;
 
-  float pitchRate = (float)((Math.Abs(pitch - scaledMaxPitch) / MaxPitch) * GyroSpeedScale * Math.Sign(scaledMaxPitch - pitch));
-  float rollRate = (float)((Math.Abs(roll - scaledMaxRoll) / MaxRoll) * GyroSpeedScale * Math.Sign(scaledMaxRoll - roll));
+  float pitchRate = (float) (Gyro.GetMaximum<float>("Pitch") * (desiredPitch - pitch) /  MaxPitch);
+  float rollRate = (float) (Gyro.GetMaximum<float>("Roll") * (desiredRoll - roll) /  MaxRoll);
   Vector3 rotationVec = new Vector3(pitchRate, 0, rollRate);
 
   // Transform rotation to match the remote control block's orientation rather than the "build" orientation
