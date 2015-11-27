@@ -13,13 +13,6 @@
 //   Sets the maximum angle in degrees that the ship will rotate to bring itself to a stop
 //   A high angle means you will stop faster, but also have more vertical movement.
 //
-// GyroSpeedScale
-//   Scalar which affects how fast the gyros rotate.
-//   Large number means they will move faster, but be more likely to overshoot and wobble back and forth
-//   This number depends on several factors including ship mass and gyro count
-//   As mass increases, GyroSpeedScale should increase.
-//   As gyro count increases, GyroSpeedScale should decrease.
-//
 // GyroResponsiveness
 //   This controls the curve of the angle the ship takes while coming to a stop.
 //   The curve looks something like this:
@@ -32,12 +25,12 @@
 // Block Names
 static string GyroName = "AH Gyro";
 static string RemoteControlName = "AH Remote";
-static string TextPanelName = "Screen Two";
+static string TextPanelName = "AH Screen";
 
 // Control constants
 static double MaxPitch = 67.5;
 static double MaxRoll = 67.5;
-static int GyroResponsiveness = 4; // Larger = more gradual angle drop
+static int GyroResponsiveness = 5; // Larger = more gradual angle drop
 static int GyroCount = 3; // Number of gyros to use for auto hover
 
 AutoHoverController controller;
@@ -50,8 +43,14 @@ void Main(string arguments) {
     var args = arguments.Split(' ');
     var command = args[0].ToLower();
 
-    if (command == "mode")
-      controller.mode = args[1];
+    if (command == "mode") {
+      var mode = args[1];
+      controller.mode = mode;
+
+      if (args.Length >= 3)
+        controller.setSpeed = Int32.Parse(args[2]);
+    }
+
   }
 
   controller.Tick();
@@ -91,6 +90,7 @@ class AutoHoverController {
   private float rollRate;
 
   public string mode;
+  public int setSpeed;
 
   public AutoHoverController(IMyGridTerminalSystem gts, IMyProgrammableBlock pb) {
     Me = pb;
@@ -109,6 +109,7 @@ class AutoHoverController {
     gyros = gyros.GetRange(0, GyroCount);
 
     mode = "Hover";
+    setSpeed = 0;
   }
 
   public void Tick() {
@@ -172,6 +173,11 @@ class AutoHoverController {
       case "freeglide":
         desiredPitch = 0;
         desiredRoll = 0;
+        break;
+
+      case "cruise":
+        desiredPitch = Math.Atan((speedForward - setSpeed) / GyroResponsiveness) / (Math.PI / 2) * MaxPitch;
+        desiredRoll = Math.Atan(speedRight / GyroResponsiveness) / (Math.PI / 2) * MaxRoll;
         break;
 
       default: // Stationary Hover
