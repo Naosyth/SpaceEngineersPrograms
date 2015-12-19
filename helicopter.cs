@@ -192,6 +192,16 @@ class AutoHoverController {
         desiredRoll = 0;
         break;
 
+      case "pitch":
+        desiredPitch = Math.Atan(speedForward / GyroResponsiveness) / HalfPi * MaxPitch;
+        desiredRoll = roll;
+        break;
+
+      case "roll":
+        desiredPitch = pitch;
+        desiredRoll = Math.Atan(speedRight / GyroResponsiveness) / HalfPi * MaxRoll;
+        break;
+
       case "cruise":
         desiredPitch = Math.Atan((speedForward - setSpeed) / GyroResponsiveness) / HalfPi * MaxPitch;
         desiredRoll = Math.Atan(speedRight / GyroResponsiveness) / HalfPi * MaxRoll;
