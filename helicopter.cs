@@ -27,11 +27,18 @@ static string GyroName = "AH Gyro";
 static string RemoteControlName = "AH Remote";
 static string TextPanelName = "AH Screen";
 
+// Program options
+static int ScreenRefreshRate = 5; // How many times per second to redraw the screen
+static bool AlwaysEnabledInGravity = false;
+
 // Control constants
 static double MaxPitch = 67.5;
 static double MaxRoll = 67.5;
-static int GyroResponsiveness = 5; // Larger = more gradual angle drop
+static int GyroResponsiveness = 8; // Larger = more gradual angle drop
 static int GyroCount = 3; // Number of gyros to use for auto hover
+static double minRPM = 0.015; // Min RPM setting for gyros. Values that are too low behave weird. You shouldn't need to adjust this.
+
+const double HalfPi = Math.PI / 2;
 
 AutoHoverController controller;
 
@@ -50,12 +57,10 @@ void Main(string arguments) {
       if (args.Length >= 3)
         controller.setSpeed = Int32.Parse(args[2]);
     }
-
   }
 
   controller.Tick();
 }
-
 
 class AutoHoverController {
   private IMyProgrammableBlock Me;
@@ -73,6 +78,8 @@ class AutoHoverController {
   private double speedForward;
   private double speedRight;
   private double speedUp;
+  private double controlSpeedForward;
+  private double controlSpeedRight;
 
   private Vector3 forwardVec;
   private Vector3 rightVec;
@@ -91,6 +98,8 @@ class AutoHoverController {
 
   public string mode;
   public int setSpeed;
+
+  private int tickCount;
 
   public AutoHoverController(IMyGridTerminalSystem gts, IMyProgrammableBlock pb) {
     Me = pb;
@@ -113,19 +122,20 @@ class AutoHoverController {
   }
 
   public void Tick() {
-    CalculateSpeed();
     CalculateOrientation();
+    CalculateSpeed();
 
-    if (!inGravity) {
-      // Automatically disable gyro override if no gravity is present
-      if (gyro.GyroOverride) {
-        for (int i = 0; i < gyros.Count; i++)
-          gyros[i].SetValueBool("Override", false);
-      }
-    }
+    if (!inGravity && gyro.GyroOverride)
+      ToggleGyros(false);
+    else if (AlwaysEnabledInGravity && inGravity && !gyro.GyroOverride)
+      ToggleGyros(true);
+    else
+      AdjustOrientation();
 
-    AdjustOrientation();
-    PrintStatus();
+    if (tickCount % (60 / ScreenRefreshRate) == 0)
+      PrintStatus();
+
+    tickCount += 1;
   }
 
   private void CalculateSpeed() {
@@ -145,9 +155,16 @@ class AutoHoverController {
     upVec = orientation.Up;
 
     // Determine speed forward and sideways in m/s
-    speedForward = Vector3.Dot(deltaPos, forwardVec) / dt * 1000;
-    speedRight = Vector3.Dot(deltaPos, rightVec) / dt * 1000;
-    speedUp = Vector3.Dot(deltaPos, upVec) / dt * 1000;
+    if (inGravity) {
+      Vector3 gravityVec = -Vector3.Normalize(remote.GetNaturalGravity());
+      speedForward = Vector3.Dot(deltaPos, Vector3.Cross(gravityVec, rightVec)) / dt * 1000;
+      speedRight = Vector3.Dot(deltaPos, -Vector3.Cross(gravityVec, forwardVec)) / dt * 1000;
+      speedUp = Vector3.Dot(deltaPos, gravityVec) / dt * 1000;
+    } else {
+      speedForward = Vector3.Dot(deltaPos, forwardVec) / dt * 1000;
+      speedRight = Vector3.Dot(deltaPos, rightVec) / dt * 1000;
+      speedUp = Vector3.Dot(deltaPos, upVec) / dt * 1000;
+    }
   }
 
   private void CalculateOrientation() {
@@ -167,7 +184,7 @@ class AutoHoverController {
     switch (mode.ToLower()) {
       case "glide":
         desiredPitch = 0;
-        desiredRoll = Math.Atan(speedRight / GyroResponsiveness) / (Math.PI / 2) * MaxRoll;
+        desiredRoll = Math.Atan(speedRight / GyroResponsiveness) / HalfPi * MaxRoll;
         break;
 
       case "freeglide":
@@ -176,19 +193,24 @@ class AutoHoverController {
         break;
 
       case "cruise":
-        desiredPitch = Math.Atan((speedForward - setSpeed) / GyroResponsiveness) / (Math.PI / 2) * MaxPitch;
-        desiredRoll = Math.Atan(speedRight / GyroResponsiveness) / (Math.PI / 2) * MaxRoll;
+        desiredPitch = Math.Atan((speedForward - setSpeed) / GyroResponsiveness) / HalfPi * MaxPitch;
+        desiredRoll = Math.Atan(speedRight / GyroResponsiveness) / HalfPi * MaxRoll;
         break;
 
       default: // Stationary Hover
-        desiredPitch = Math.Atan(speedForward / GyroResponsiveness) / (Math.PI / 2) * MaxPitch;
-        desiredRoll = Math.Atan(speedRight / GyroResponsiveness) / (Math.PI / 2) * MaxRoll;
+        desiredPitch = Math.Atan(speedForward / GyroResponsiveness) / HalfPi * MaxPitch;
+        desiredRoll = Math.Atan(speedRight / GyroResponsiveness) / HalfPi * MaxRoll;
         break;
     }
 
     // Scale gyro rate based on difference bewteen the current and desired angle
-    pitchRate = (float)(gyro.GetMaximum<float>("Pitch") * (desiredPitch - pitch) /  MaxPitch);
-    rollRate = (float)(gyro.GetMaximum<float>("Roll") * (desiredRoll - roll) /  MaxRoll);
+    pitchRate = (float)(gyro.GetMaximum<float>("Pitch") * (desiredPitch - pitch) / 90);
+    if (pitchRate > -minRPM && pitchRate < minRPM)
+      pitchRate = (float)(Math.Sign(pitchRate) * minRPM);
+
+    rollRate = (float)(gyro.GetMaximum<float>("Roll") * (desiredRoll - roll) / 90);
+    if (rollRate > -minRPM && rollRate < minRPM)
+      rollRate = (float)(Math.Sign(rollRate) * minRPM);
 
     // Transform rotation to match the remote control block's orientation rather than the "build" orientation
     Matrix shipOrientation;
@@ -238,5 +260,10 @@ class AutoHoverController {
         "\n\n----- Status ----------------------------------------" +
         "\nGravity: " + String.Format("{0:0.00}", gravity) + " g");
     }
+  }
+
+  private void ToggleGyros(bool state) {
+    for (int i = 0; i < gyros.Count; i++)
+      gyros[i].SetValueBool("Override", state);
   }
 }
