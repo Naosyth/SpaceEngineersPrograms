@@ -35,7 +35,7 @@ static bool AlwaysEnabledInGravity = false;
 static double MaxPitch = 67.5;
 static double MaxRoll = 67.5;
 static int GyroResponsiveness = 8; // Larger = more gradual angle drop
-static int GyroCount = 1; // Number of gyros to use for auto hover
+static int GyroCount = 9; // Number of gyros to use for auto hover
 static double minRPM = 0.015; // Min RPM setting for gyros. Values that are too low behave weird. You shouldn't need to adjust this.
 
 const double HalfPi = Math.PI / 2;
