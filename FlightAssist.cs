@@ -1,10 +1,20 @@
 // TODO
-// * Display 0 instead of NaN
+// * Display other useful info such as dampener status
+// * Add text panel draw rate limiter
+// * Make configuration easier
+// * Fix FlightAssist -> flightAssist
+
+// To do rear in atmo:
+// * Remove "90 - " in desiredPitch
+// * Change worldSpeedRight to use upVec
+
+// To do bottom in space:
+// * change desired to (90, 90)
 
 // Configure which side of the ship has the main thrusters
 // for flight in both gravity and space.
 // Accepted values are 'bottom' and 'rear'
-static string GravityMainThrust = "bottom";
+static string GravityMainThrust = "rear";
 static string SpaceMainThrust = "rear";
 
 bool initialized = false;
@@ -161,21 +171,29 @@ class TransPose : Module {
     switchingGravity = inGravity;
     inGravity = !double.IsNaN(gravity.GetDim(0));
     switchingGravity = (inGravity != switchingGravity);
-
+    
     worldOrientation = remote.WorldMatrix;
-    SetOrientationVectors(inGravity ? GravityMainThrust : SpaceMainThrust);
+    forwardVec = worldOrientation.Forward;
+    rightVec = worldOrientation.Right;
+    upVec = worldOrientation.Up;
 
     if (inGravity) {
-      pitch = Math.Asin(Vector3D.Dot(gravity, forwardVec)) * RadToDeg;
-      tilt = Math.Asin(Vector3D.Dot(gravity, rightVec)) * RadToDeg;
+      pitch = Math.Acos(Vector3D.Dot(gravity, forwardVec)) * RadToDeg;
+      tilt = Math.Acos(Vector3D.Dot(gravity, rightVec)) * RadToDeg;
+      if (double.IsNaN(pitch)) pitch = 0;
+      if (double.IsNaN(tilt)) tilt = 0;
     } else {
       if (double.IsNaN(deltaPosition.Length())) {
         pitch = 0;
         tilt = 0;
         return;
       }
-      pitch = Math.Asin(Vector3D.Dot(deltaPosition, forwardVec)) * RadToDeg;
-      tilt = Math.Asin(Vector3D.Dot(deltaPosition, rightVec)) * RadToDeg;
+      pitch = Math.Acos(Vector3D.Dot(deltaPosition, forwardVec)) * RadToDeg;
+
+      if (Double.IsNaN(Math.Acos(Vector3D.Dot(deltaPosition, forwardVec))))
+        pitch = localSpeedForward > 0 ? 0 : 180;
+
+      tilt = Math.Acos(Vector3D.Dot(deltaPosition, rightVec)) * RadToDeg;
     }
   }
 
@@ -192,39 +210,34 @@ class TransPose : Module {
 
     if (inGravity) {
       worldSpeedForward = Vector3D.Dot(deltaPosition, Vector3D.Cross(gravity, rightVec)) * speed;
-      worldSpeedRight = Vector3D.Dot(deltaPosition, -Vector3D.Cross(gravity, forwardVec)) * speed;
+      if (GravityMainThrust == "bottom")
+        worldSpeedRight = Vector3D.Dot(deltaPosition, -Vector3D.Cross(gravity, forwardVec)) * speed;
+      else
+        worldSpeedRight = -Vector3D.Dot(deltaPosition, -Vector3D.Cross(gravity, upVec)) * speed;
       worldSpeedUp = Vector3D.Dot(deltaPosition, gravity) * speed;
-      localSpeedForward = Vector3D.Dot(deltaPosition, forwardVec) * speed;
-      localSpeedRight = Vector3D.Dot(deltaPosition, rightVec) * speed;
-      localSpeedUp = Vector3D.Dot(deltaPosition, upVec) * speed;
     } else {
       worldSpeedForward = 0;
       worldSpeedRight = 0;
       worldSpeedUp = 0;
-      localSpeedForward = Vector3D.Dot(deltaPosition, upVec) * speed;
+    }
+
+    if (SpaceMainThrust == "rear") {
+      localSpeedForward = Vector3D.Dot(deltaPosition, forwardVec) * speed;
       localSpeedRight = Vector3D.Dot(deltaPosition, rightVec) * speed;
-      localSpeedUp = Vector3D.Dot(deltaPosition, forwardVec) * speed;
+      localSpeedUp = Vector3D.Dot(deltaPosition, upVec) * speed;
+    } else {
+      localSpeedUp = -Vector3D.Dot(deltaPosition, forwardVec) * speed;
+      localSpeedRight = Vector3D.Dot(deltaPosition, rightVec) * speed;
+      localSpeedForward = Vector3D.Dot(deltaPosition, upVec) * speed;
     }
   }
 
-  private float ClampMinRpm(float val) {
+  private double ClampMinRpm(double val) {
     var minRpm = 0.015f;
     if (val > -minRpm && val < minRpm)
-      return (float)(Math.Sign(val) * minRpm);
+      return (Math.Sign(val) * minRpm);
     else
       return val;
-  }
-
-  private void SetOrientationVectors(string direction) {
-    if (direction == "bottom") {
-      forwardVec = worldOrientation.Forward;
-      rightVec = worldOrientation.Right;
-      upVec = worldOrientation.Up;
-    } else if (direction == "rear") {
-      forwardVec = worldOrientation.Up;
-      rightVec = worldOrientation.Right;
-      upVec = worldOrientation.Forward;
-    }
   }
 
   public void ToggleGyros(bool state) {
@@ -239,17 +252,39 @@ class TransPose : Module {
 
   public void ApproachTargetOrientation(double targetPitch, double targetTilt) {
     var max = gyros[0].GetMaximum<float>("Pitch");
-    var pitchRate = ClampMinRpm((float)(max * (targetPitch - pitch) / 90));
-    var tiltRate = ClampMinRpm((float)(max * (targetTilt - tilt) / 90));
+    double pitchRate, yawRate, rollRate;
+    if (inGravity && GravityMainThrust == "rear")
+      pitchRate = (max * (targetPitch - (pitch * -Math.Sign(Vector3D.Dot(upVec, gravity)))) / 180);
+    else
+      pitchRate = (max * (targetPitch - pitch) / 180);
+    yawRate = (max * (targetTilt - tilt) / 180);
+    rollRate = (gyros[0].GetMaximum<float>("Roll") * (targetTilt - tilt) / 180);
 
-    // When in space, prograde and retrograde are both (0, 0) so when flipping
-    // to come to a stop, force a high turn rate at the beginning.
-    if (!inGravity && localSpeedForward > 0) {
-      pitchRate = max - pitchRate;
-      tiltRate = max - tiltRate;
+    if (!inGravity) {
+      if (SpaceMainThrust == "bottom")
+        pitchRate = Math.Abs(pitchRate);
+
+      pitchRate *= -Math.Sign(localSpeedUp);
+      rollRate *= Math.Sign(localSpeedForward);
+
+      if (SpaceMainThrust == "bottom" && localSpeedForward > 0) {
+        pitchRate = max - pitchRate;
+        yawRate = max - yawRate;
+        rollRate = gyros[0].GetMaximum<float>("Roll") - rollRate;
+      }
+
+      yawRate *= 1.0f - (float)(pitch / 90);
+      rollRate *= (float)(pitch / 90);
+    } else if (inGravity) {
+      if (GravityMainThrust == "bottom") {
+        pitchRate *= -Math.Sign(Vector3D.Dot(upVec, gravity));
+      }
+
+      yawRate *= 1.0 - pitch == 90 ? 1.0 : (Math.Abs(90 - pitch) / 90);
+      rollRate *= pitch == 90 ? 1.0 : (Math.Abs(90 - pitch) / 90);
     }
 
-    rotationVec = inGravity ? new Vector3D(pitchRate, 0, tiltRate) : new Vector3D(pitchRate, -tiltRate, 0);
+    rotationVec = new Vector3D(ClampMinRpm(pitchRate), ClampMinRpm(-yawRate), ClampMinRpm(-rollRate));
     rotationVec = Vector3.Transform(rotationVec, shipOrientation);
   }
 
@@ -271,7 +306,7 @@ class TransPose : Module {
 
 class Printer : Module {
   private string textPanelName = "Text panel 2";
-  private IMyTextPanel screen;
+  public IMyTextPanel screen;
 
   private List<Module> printableModules;
   private int numModules;
@@ -366,10 +401,7 @@ class VectorAssist : Module {
 
     double pitch, tilt;
 
-    if (FlightAssist.transPose.inGravity)
-      pitch = -Math.Floor(Vector3D.Dot(FlightAssist.transPose.upVec, FlightAssist.transPose.deltaPosition) * yCenter) + yCenter;
-    else
-      pitch = -Math.Floor(Vector3D.Dot(FlightAssist.transPose.forwardVec, FlightAssist.transPose.deltaPosition) * yCenter) + yCenter;
+    pitch = height - Math.Floor((FlightAssist.transPose.pitch / 180) * height);
     tilt = Math.Floor(Vector3D.Dot(FlightAssist.transPose.rightVec, FlightAssist.transPose.deltaPosition) * xCenter) + xCenter;
 
     if (FlightAssist.transPose.localSpeedForward < 0){
@@ -422,16 +454,25 @@ class VectorAssist : Module {
       return;
     }
 
+    double desiredPitch, desiredTilt;
+    if (SpaceMainThrust == "rear") {
+      desiredPitch = 180;
+      desiredTilt = 90;
+    } else {
+      desiredPitch = 90;
+      desiredTilt = 90;
+    }
+
     // Activate dampeners when on target, if they aren't already on. Otherwise disable them.
     if (!FlightAssist.transPose.remote.DampenersOverride && 
         FlightAssist.transPose.localSpeedForward < 0 && 
-        Math.Abs(FlightAssist.transPose.pitch) < angleThreshold && 
-        Math.Abs(FlightAssist.transPose.tilt) < angleThreshold) {
+        EqualWithMargin(Math.Abs(FlightAssist.transPose.pitch), desiredPitch, angleThreshold) && 
+        EqualWithMargin(Math.Abs(FlightAssist.transPose.tilt), desiredTilt, angleThreshold)) {
       FlightAssist.transPose.remote.GetActionWithName("DampenersOverride").Apply(FlightAssist.transPose.remote);
     }
 
     // Approach retrograde orientation
-    FlightAssist.transPose.ApproachTargetOrientation(0, 0);
+    FlightAssist.transPose.ApproachTargetOrientation(desiredPitch, desiredTilt);
   }
 }
 
@@ -512,7 +553,7 @@ class HoverAssist : Module {
     switch (mode.ToLower()) {
       case "glide":
         desiredPitch = 0;
-        desiredRoll = Math.Atan(FlightAssist.transPose.localSpeedRight / gyroResponsiveness) / HalfPi * maxRoll;
+        desiredRoll = Math.Atan(FlightAssist.transPose.worldSpeedRight / gyroResponsiveness) / HalfPi * maxRoll;
         break;
 
       case "freeglide":
@@ -521,26 +562,34 @@ class HoverAssist : Module {
         break;
 
       case "pitch":
-        desiredPitch = Math.Atan(FlightAssist.transPose.localSpeedForward / gyroResponsiveness) / HalfPi * maxPitch;
+        desiredPitch = Math.Atan(FlightAssist.transPose.worldSpeedForward / gyroResponsiveness) / HalfPi * maxPitch;
         desiredRoll = FlightAssist.transPose.tilt;
         break;
 
       case "roll":
         desiredPitch = FlightAssist.transPose.pitch;
-        desiredRoll = Math.Atan(FlightAssist.transPose.localSpeedRight / gyroResponsiveness) / HalfPi * maxRoll;
+        desiredRoll = Math.Atan(FlightAssist.transPose.worldSpeedRight / gyroResponsiveness) / HalfPi * maxRoll;
         break;
 
       case "cruise":
-        desiredPitch = Math.Atan((FlightAssist.transPose.localSpeedForward - setSpeed) / gyroResponsiveness) / HalfPi * maxPitch;
-        desiredRoll = Math.Atan(FlightAssist.transPose.localSpeedRight / gyroResponsiveness) / HalfPi * maxRoll;
+        desiredPitch = Math.Atan((FlightAssist.transPose.worldSpeedForward - setSpeed) / gyroResponsiveness) / HalfPi * maxPitch;
+        desiredRoll = Math.Atan(FlightAssist.transPose.worldSpeedRight / gyroResponsiveness) / HalfPi * maxRoll;
         break;
 
       default: // Stationary Hover
-        desiredPitch = Math.Atan(FlightAssist.transPose.localSpeedForward / gyroResponsiveness) / HalfPi * maxPitch;
-        desiredRoll = Math.Atan(FlightAssist.transPose.localSpeedRight / gyroResponsiveness) / HalfPi * maxRoll;
+        desiredPitch = Math.Atan(FlightAssist.transPose.worldSpeedForward / gyroResponsiveness) / HalfPi * maxPitch;
+        desiredRoll = Math.Atan(FlightAssist.transPose.worldSpeedRight / gyroResponsiveness) / HalfPi * maxRoll;
         break;
     }
 
+    if (GravityMainThrust == "bottom")
+      desiredPitch = 90 - desiredPitch;
+    desiredRoll = 90 - desiredRoll;
+
     FlightAssist.transPose.ApproachTargetOrientation(desiredPitch, desiredRoll);
   }
+}
+
+static bool EqualWithMargin(double value, double target, double margin) {
+  return value > target - margin && value < target + margin;
 }
