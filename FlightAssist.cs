@@ -1,33 +1,61 @@
-// TODO
-// * Display other useful info such as dampener status
-// * Add text panel draw rate limiter
-// * Make configuration easier
-// * Fix FlightAssist -> flightAssist
+// --------------------------------------------------
+// ---------- Flight Assist -------------------------
+// --------------------------------------------------
+// Version 3.0
+//
+// Computer assisted flight
+// Control your ship without thrusters in every direction
+// 
+// Author: Naosyth 
+// naosyth@gmail.com 
 
-// To do rear in atmo:
-// * Remove "90 - " in desiredPitch
-// * Change worldSpeedRight to use upVec
 
-// To do bottom in space:
-// * change desired to (90, 90)
+// --------------------------------------------------
+// ---------- Configuration -------------------------
+// --------------------------------------------------
+// ----- Block Names -----
+//   Name of key components on the ship required by this script
+//   Screen is optional. If no screen is found, the script will sill work.
+static string RemoteControlBlockName = "FA Remote";
+static string TextPanelBlockName = "FA Screen";
 
-// Configure which side of the ship has the main thrusters
-// for flight in both gravity and space.
+// ----- Main Thrust Orientation -----
+// Configure which side of the ship has the main thrusters for flight in both gravity and space.
 // Accepted values are 'bottom' and 'rear'
-static string GravityMainThrust = "rear";
+static string GravityMainThrust = "bottom";
 static string SpaceMainThrust = "rear";
 
-bool initialized = false;
+// ----- Gyro Configuration -----
+// GyroCount - Number of gyros to use for orienting the ship
+static int GyroCount = 1;
 
-FlightAssist fa;
+// ----- Hover Assist Configuration -----
+// If set to true, the hover assist module will always be enabled while in gravity
+static bool AlwaysEnabledInGravity = false;
 
+// GyroResponsiveness - Adjust gyro responce curve. High = smooth but slower response.
+static int GyroResponsiveness = 16;
+
+// MaxPitch / MaxRoll - Maximum angle reached by the HoverAssist module when stopping the vehicle
+static double MaxPitch = 45;
+static double MaxRoll = 45;
+
+// ----- Printer Module Configuration -----
+// The number of ticks that must pass inbetween text panel screen re-draws
+static int screenDrawInterval = 5;
+
+// --------------------------------------------------
+// ---------- Program -------------------------------
+// --------------------------------------------------
 const double HalfPi = Math.PI / 2;
 const double RadToDeg = 180 / Math.PI;
+
+bool initialized = false;
+FlightAssist fa;
 
 void Main(string arguments) {
   if (!initialized) {
     fa = new FlightAssist(GridTerminalSystem, Me);
-
     initialized = true;
   }
 
@@ -50,10 +78,10 @@ class FlightAssist {
     Me = pb;
 
     modules = new List<Module>();
-    modules.Add(transPose = new TransPose(this, "TransPose"));
-    modules.Add(hoverAssist = new HoverAssist(this, "HoverAssist"));
-    modules.Add(vectorAssist = new VectorAssist(this, "VectorAssist"));
-    modules.Add(printer = new Printer(this, "Printer"));
+    modules.Add(transPose = new TransPose("TransPose"));
+    modules.Add(hoverAssist = new HoverAssist("HoverAssist"));
+    modules.Add(vectorAssist = new VectorAssist("VectorAssist"));
+    modules.Add(printer = new Printer("Printer"));
   }
 
   public void Run(string arguments) {
@@ -63,9 +91,9 @@ class FlightAssist {
       moduleName = args[0].ToLower();
 
     for (var i = 0; i < modules.Count; i++) {
-      if (modules[i].name != "TransPose" || arguments == "")
-      modules[i].Tick();
-      if (modules[i].name.ToLower() == moduleName)
+      if (arguments == "")
+        modules[i].Tick();
+      else if (modules[i].name.ToLower() == moduleName)
         modules[i].ProcessCommand(args);
     }
   }
@@ -73,41 +101,90 @@ class FlightAssist {
 
 abstract class Module {
   public string name;
-  private FlightAssist FlightAssist;
 
-  public Module(FlightAssist fa, string n) {
-    FlightAssist = fa;
+  public Module(string n) {
     name = n;
   }
 
   abstract public void Tick();
-  abstract public void ProcessCommand(string[] args);
-
+  virtual public void ProcessCommand(string[] args) {}
   virtual public string GetPrintString() { return ""; }
 }
 
+class Printer : Module {
+  private string textPanelName;
+  public IMyTextPanel screen;
+
+  private List<Module> printableModules;
+  private int numModules;
+  private int displayedModule;
+  private int ticks;
+  private int redrawInterval;
+
+  public Printer(string name) : base(name) {
+    textPanelName = TextPanelBlockName;
+    if (!String.IsNullOrEmpty(textPanelName))
+      screen = FlightAssist.GridTerminalSystem.GetBlockWithName(textPanelName) as IMyTextPanel;
+
+    printableModules = new List<Module>();
+    printableModules.Add(FlightAssist.transPose);
+    printableModules.Add(FlightAssist.hoverAssist);
+    printableModules.Add(FlightAssist.vectorAssist);
+    numModules = printableModules.Count;
+
+    redrawInterval = screenDrawInterval;
+  }
+
+  override public void ProcessCommand(string[] args) {
+    if (args == null)
+      return;
+
+    var command = args[1].ToLower();
+    switch (command) {
+      case "next":
+        displayedModule = (displayedModule + 1) % numModules;
+        break;
+      case "previous":
+        displayedModule = (displayedModule == 0 ? numModules - 1 : displayedModule - 1) % numModules;
+        break;
+    }
+  }
+
+  override public void Tick() {
+    if (screen == null)
+      return;
+
+    ticks += 1;
+    if (ticks % redrawInterval != 0)
+      return;
+
+    var module = printableModules[displayedModule];
+    screen.WritePublicText("");
+    screen.WritePublicText("Flight Assist - Module [" + module.name + "]");
+    screen.WritePublicText("\n" + module.GetPrintString(), true);
+  }
+}
+
 class TransPose : Module {
-  private string remoteControlName = "FA Remote";
-  private int gyroCount = 2;
+  private string remoteControlName;
+  private int gyroCount;
 
   private bool gyrosEnabled;
-
   public IMyRemoteControl remote;
   public List<IMyGyro> gyros;
 
   private Vector3D oldPosition;
   public Vector3D position;
   public Vector3D deltaPosition;
-
   public double speed;
   public double worldSpeedForward, worldSpeedRight, worldSpeedUp;
   public double localSpeedForward, localSpeedRight, localSpeedUp;
 
   private Matrix shipOrientation;
   private Matrix worldOrientation;
+  private Vector3D rotationVec;
   public Vector3D forwardVec, rightVec, upVec;
   public double pitch, tilt;
-  private Vector3D rotationVec;
 
   public Vector3D gravity;
   public bool inGravity;
@@ -115,7 +192,10 @@ class TransPose : Module {
 
   private double dt = 1000/60;
 
-  public TransPose(FlightAssist fa, string n) : base(fa, n) {
+  public TransPose(string name) : base(name) {
+    remoteControlName = RemoteControlBlockName;
+    gyroCount = GyroCount;
+
     var list = new List<IMyTerminalBlock>();
     FlightAssist.GridTerminalSystem.GetBlocksOfType<IMyGyro>(list, x => x.CubeGrid == FlightAssist.Me.CubeGrid);
     gyros = list.ConvertAll(x => (IMyGyro)x);
@@ -141,10 +221,8 @@ class TransPose : Module {
       return;
 
     var command = args[1].ToLower();
-
-    if (command == "togglegyros") {
+    if (command == "togglegyros")
       ToggleGyros(!gyrosEnabled);
-    }
   }
 
   override public string GetPrintString() {
@@ -199,9 +277,6 @@ class TransPose : Module {
 
   private void CalcSpeedComponents() {
     if (double.IsNaN(deltaPosition.Length())) {
-      worldSpeedForward = 0;
-      worldSpeedRight = 0;
-      worldSpeedUp = 0;
       localSpeedForward = 0;
       localSpeedRight = 0;
       localSpeedUp = 0;
@@ -209,12 +284,15 @@ class TransPose : Module {
     }
 
     if (inGravity) {
-      worldSpeedForward = Vector3D.Dot(deltaPosition, Vector3D.Cross(gravity, rightVec)) * speed;
-      if (GravityMainThrust == "bottom")
-        worldSpeedRight = Vector3D.Dot(deltaPosition, -Vector3D.Cross(gravity, forwardVec)) * speed;
-      else
-        worldSpeedRight = -Vector3D.Dot(deltaPosition, -Vector3D.Cross(gravity, upVec)) * speed;
-      worldSpeedUp = Vector3D.Dot(deltaPosition, gravity) * speed;
+      if (GravityMainThrust == "rear") {
+          worldSpeedUp = -Vector3D.Dot(deltaPosition, Vector3D.Cross(gravity, rightVec)) * speed;
+          worldSpeedRight = -Vector3D.Dot(deltaPosition, -Vector3D.Cross(gravity, upVec)) * speed;
+          worldSpeedForward = Vector3D.Dot(deltaPosition, gravity) * speed;
+        } else {
+          worldSpeedForward = Vector3D.Dot(deltaPosition, Vector3D.Cross(gravity, rightVec)) * speed;
+          worldSpeedRight = Vector3D.Dot(deltaPosition, -Vector3D.Cross(gravity, forwardVec)) * speed;
+          worldSpeedUp = Vector3D.Dot(deltaPosition, gravity) * speed;
+        }
     } else {
       worldSpeedForward = 0;
       worldSpeedRight = 0;
@@ -254,11 +332,11 @@ class TransPose : Module {
     var max = gyros[0].GetMaximum<float>("Pitch");
     double pitchRate, yawRate, rollRate;
     if (inGravity && GravityMainThrust == "rear")
-      pitchRate = (max * (targetPitch - (pitch * -Math.Sign(Vector3D.Dot(upVec, gravity)))) / 180);
+      pitchRate = (max * (targetPitch - (pitch * -Math.Sign(Vector3D.Dot(upVec, gravity)))) / 90);
     else
-      pitchRate = (max * (targetPitch - pitch) / 180);
-    yawRate = (max * (targetTilt - tilt) / 180);
-    rollRate = (gyros[0].GetMaximum<float>("Roll") * (targetTilt - tilt) / 180);
+      pitchRate = (max * (targetPitch - pitch) / 90);
+    yawRate = (max * (targetTilt - tilt) / 90);
+    rollRate = (gyros[0].GetMaximum<float>("Roll") * (targetTilt - tilt) / 90);
 
     if (!inGravity) {
       if (SpaceMainThrust == "bottom")
@@ -276,12 +354,13 @@ class TransPose : Module {
       yawRate *= 1.0f - (float)(pitch / 90);
       rollRate *= (float)(pitch / 90);
     } else if (inGravity) {
-      if (GravityMainThrust == "bottom") {
+      if (GravityMainThrust == "bottom")
         pitchRate *= -Math.Sign(Vector3D.Dot(upVec, gravity));
-      }
 
-      yawRate *= 1.0 - pitch == 90 ? 1.0 : (Math.Abs(90 - pitch) / 90);
-      rollRate *= pitch == 90 ? 1.0 : (Math.Abs(90 - pitch) / 90);
+      if (GravityMainThrust == "bottom")
+        yawRate *= 0;
+      else
+        rollRate *= 0;
     }
 
     rotationVec = new Vector3D(ClampMinRpm(pitchRate), ClampMinRpm(-yawRate), ClampMinRpm(-rollRate));
@@ -304,52 +383,6 @@ class TransPose : Module {
   }
 }
 
-class Printer : Module {
-  private string textPanelName = "Text panel 2";
-  public IMyTextPanel screen;
-
-  private List<Module> printableModules;
-  private int numModules;
-  private int displayedModule;
-
-  public Printer(FlightAssist fa, string n) : base(fa, n) {
-    if (!String.IsNullOrEmpty(textPanelName))
-      screen = FlightAssist.GridTerminalSystem.GetBlockWithName(textPanelName) as IMyTextPanel;
-
-    printableModules = new List<Module>();
-    printableModules.Add(FlightAssist.transPose);
-    printableModules.Add(FlightAssist.hoverAssist);
-    printableModules.Add(FlightAssist.vectorAssist);
-    numModules = printableModules.Count;
-  }
-
-  override public void ProcessCommand(string[] args) {
-    if (args == null)
-      return;
-
-    var command = args[1].ToLower();
-
-    switch (command) {
-      case "next":
-        displayedModule = (displayedModule + 1) % numModules;
-        break;
-      case "previous":
-        displayedModule = (displayedModule == 0 ? numModules - 1 : displayedModule - 1) % numModules;
-        break;
-    }
-  }
-
-  override public void Tick() {
-    if (screen == null)
-      return;
-
-    var module = printableModules[displayedModule];
-    screen.WritePublicText("");
-    screen.WritePublicText("Flight Assist - Module [" + module.name + "]");
-    screen.WritePublicText("\n" + module.GetPrintString(), true);
-  }
-}
-
 class VectorAssist : Module {
   private double angleThreshold = 0.3;
   private double speedThreshold = 0.3;
@@ -357,7 +390,7 @@ class VectorAssist : Module {
   private bool brakingEnabled;
   private double startSpeed;
 
-  public VectorAssist(FlightAssist fa, string n) : base(fa, n) {}
+  public VectorAssist(string name) : base(name) {}
 
   override public void Tick() {
     // Auto toggle off when entering space
@@ -375,8 +408,6 @@ class VectorAssist : Module {
       return;
 
     var command = args[1].ToLower();
-
-    // Space only commands
     if (!FlightAssist.transPose.inGravity) {
       if (command == "brake") {
         brakingEnabled = !brakingEnabled;
@@ -401,19 +432,40 @@ class VectorAssist : Module {
 
     double pitch, tilt;
 
-    pitch = height - Math.Floor((FlightAssist.transPose.pitch / 180) * height);
-    tilt = Math.Floor(Vector3D.Dot(FlightAssist.transPose.rightVec, FlightAssist.transPose.deltaPosition) * xCenter) + xCenter;
-
-    if (FlightAssist.transPose.localSpeedForward < 0){
-      pitch = height - pitch;
-      tilt = width - tilt;
+    if (FlightAssist.transPose.inGravity) {
+      pitch = height - Math.Floor((FlightAssist.transPose.pitch / 180) * height) - 1;
+      tilt = Math.Floor(Vector3D.Dot(FlightAssist.transPose.rightVec, FlightAssist.transPose.deltaPosition) * xCenter) + xCenter;
+      if (FlightAssist.transPose.localSpeedForward < 0)
+        tilt = width - tilt;
+    } else {
+      pitch = -Math.Floor((FlightAssist.transPose.localSpeedUp / FlightAssist.transPose.speed) * yCenter) + yCenter;
+      tilt = Math.Floor((FlightAssist.transPose.localSpeedRight / FlightAssist.transPose.speed) * xCenter) + xCenter;
     }
+
+    double roll, horizon, horizonPoint;
+    roll = Math.Asin(Vector3.Dot(FlightAssist.transPose.gravity, FlightAssist.transPose.rightVec)) * RadToDeg;
+    horizonPoint = pitch;
+    horizon = pitch;
 
     string output = "";
     for (var y = 0; y < height; y++) {
       output += "       |";
       for (var x = 0; x < width; x++) {
-        if (x == tilt && y == pitch)
+        var upsideDown = Vector3D.Dot(FlightAssist.transPose.upVec, FlightAssist.transPose.gravity) < 0;
+
+        if (FlightAssist.transPose.inGravity) {
+          if (EqualWithMargin(roll, 0, 0.01)) {
+            horizonPoint = horizon;
+          } else {
+            horizonPoint = Math.Floor((height * 2 * roll / 90)) * (x - xCenter) / (width/2) + horizon;
+            if (upsideDown)
+              horizonPoint = height - horizonPoint;
+          }
+        }
+
+        if (FlightAssist.transPose.inGravity && (x == tilt && y == 0))
+          output += ".!";
+        else if (!FlightAssist.transPose.inGravity && x == tilt && y == pitch)
           output += FlightAssist.transPose.localSpeedForward < 0 ? "~" : "+";
         else if (x == xCenter && y == yCenter)
           output += "  ";
@@ -421,6 +473,10 @@ class VectorAssist : Module {
           output += "<";
         else if (x == xCenter+1 && y == yCenter)
           output += ">";
+        else if (FlightAssist.transPose.inGravity && !upsideDown && y > horizonPoint)
+          output += "=";
+        else if (FlightAssist.transPose.inGravity && upsideDown && y < horizonPoint)
+          output += "=";
         else
           output += ". ";
       }
@@ -480,7 +536,7 @@ class HoverAssist : Module {
   private double maxPitch = 45;
   private double maxRoll = 45;
   private int gyroResponsiveness = 16; // Larger = more gradual angle drop
-  private bool alwaysEnabledInGravity = false;
+  private bool alwaysEnabledInGravity;
 
   private bool hoverEnabled;
   private string mode;
@@ -488,7 +544,12 @@ class HoverAssist : Module {
   private double desiredPitch, desiredRoll;
   private float setSpeed;
 
-  public HoverAssist(FlightAssist fa, string n) : base(fa, n) {
+  public HoverAssist(string name) : base(name) {
+    alwaysEnabledInGravity = AlwaysEnabledInGravity;
+    maxPitch = MaxPitch;
+    maxRoll = MaxRoll;
+    gyroResponsiveness = GyroResponsiveness;
+
     mode = "Hover";
   }
 
@@ -510,8 +571,6 @@ class HoverAssist : Module {
       return;
 
     var command = args[1];
-
-    // Gravity only commands
     if (FlightAssist.transPose.inGravity) {
       switch (command.ToLower()) {
         case "toggle":
@@ -582,13 +641,17 @@ class HoverAssist : Module {
         break;
     }
 
-    if (GravityMainThrust == "bottom")
+    if (GravityMainThrust == "bottom" && desiredPitch != FlightAssist.transPose.pitch)
       desiredPitch = 90 - desiredPitch;
     desiredRoll = 90 - desiredRoll;
 
     FlightAssist.transPose.ApproachTargetOrientation(desiredPitch, desiredRoll);
   }
 }
+
+// --------------------------------------------------
+// ---------- Helper Functions ----------------------
+// --------------------------------------------------
 
 static bool EqualWithMargin(double value, double target, double margin) {
   return value > target - margin && value < target + margin;
