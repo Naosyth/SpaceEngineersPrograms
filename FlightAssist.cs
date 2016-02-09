@@ -34,7 +34,7 @@ static int GyroCount = 1;
 static bool AlwaysEnabledInGravity = false;
 
 // GyroResponsiveness - Adjust gyro responce curve. High = smooth but slower response.
-static int GyroResponsiveness = 16;
+static int GyroResponsiveness = 8;
 
 // MaxPitch / MaxRoll - Maximum angle reached by the HoverAssist module when stopping the vehicle
 static double MaxPitch = 45;
@@ -203,8 +203,6 @@ class TransPose : Module {
 
     remote = FlightAssist.GridTerminalSystem.GetBlockWithName(remoteControlName) as IMyRemoteControl;
     remote.Orientation.GetMatrix(out shipOrientation);
-
-    ToggleGyros(false);
   }
 
   override public void Tick() {
@@ -533,9 +531,9 @@ class VectorAssist : Module {
 }
 
 class HoverAssist : Module {
-  private double maxPitch = 45;
-  private double maxRoll = 45;
-  private int gyroResponsiveness = 16; // Larger = more gradual angle drop
+  private double maxPitch;
+  private double maxRoll;
+  private int gyroResponsiveness;
   private bool alwaysEnabledInGravity;
 
   private bool hoverEnabled;
@@ -551,6 +549,8 @@ class HoverAssist : Module {
     gyroResponsiveness = GyroResponsiveness;
 
     mode = "Hover";
+    hoverEnabled = FlightAssist.transPose.gyros[0].GyroOverride;
+    FlightAssist.transPose.ToggleGyros(hoverEnabled);
   }
 
   override public void Tick() {
