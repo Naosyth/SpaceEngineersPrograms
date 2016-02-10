@@ -182,9 +182,6 @@ class TransPose : Module {
 
   public Matrix shipOrientation;
   public Matrix worldOrientation;
-  private Vector3D rotationVec;
-  public Vector3D forwardVec, rightVec, upVec;
-  public double pitch, tilt;
 
   public Vector3D gravity;
   public bool inGravity;
@@ -230,10 +227,7 @@ class TransPose : Module {
            "\nTotal: " + String.Format("{0:000}", speed) + " m/s" +
            "\n  F/B: " + String.Format("{0:000}", localSpeedForward) +
            "\n  R/L: " + String.Format("{0:000}", localSpeedRight) +
-           "\n  U/D: " + String.Format("{0:000}", localSpeedUp) +
-           "\n\n----- Orientation ----------------------------------------" +
-           "\nPitch: " + String.Format("{0:00}", pitch) + "°" +
-           " | Tilt: " + String.Format("{0:00}", tilt) + "°";
+           "\n  U/D: " + String.Format("{0:000}", localSpeedUp);
   }
 
   private void CalcVelocity() {
@@ -251,62 +245,34 @@ class TransPose : Module {
     switchingGravity = (inGravity != switchingGravity);
     
     worldOrientation = remote.WorldMatrix;
-    forwardVec = worldOrientation.Forward;
-    rightVec = worldOrientation.Right;
-    upVec = worldOrientation.Up;
+  }
 
-    if (inGravity) {
-      pitch = Math.Acos(Vector3D.Dot(gravity, forwardVec)) * RadToDeg;
-      tilt = Math.Acos(Vector3D.Dot(gravity, rightVec)) * RadToDeg;
-      if (double.IsNaN(pitch)) pitch = 0;
-      if (double.IsNaN(tilt)) tilt = 0;
-    } else {
-      if (double.IsNaN(deltaPosition.Length())) {
-        pitch = 0;
-        tilt = 0;
-        return;
-      }
-      pitch = Math.Acos(Vector3D.Dot(deltaPosition, forwardVec)) * RadToDeg;
-
-      if (Double.IsNaN(Math.Acos(Vector3D.Dot(deltaPosition, forwardVec))))
-        pitch = localSpeedForward > 0 ? 0 : 180;
-
-      tilt = Math.Acos(Vector3D.Dot(deltaPosition, rightVec)) * RadToDeg;
-    }
+  public void PitchAndTiltBetweenVectors(Vector3D v1, Vector3D v2, out double pitch, out double tilt) {
+    pitch = Math.Acos(Vector3D.Dot(v1, v2)) * RadToDeg;
+    tilt = Math.Acos(Vector3D.Dot(v1, v2)) * RadToDeg;
+    if (double.IsNaN(pitch)) pitch = 0;
+    if (double.IsNaN(tilt)) tilt = 0;
   }
 
   private void CalcSpeedComponents() {
-    if (double.IsNaN(deltaPosition.Length())) {
-      localSpeedForward = 0;
-      localSpeedRight = 0;
-      localSpeedUp = 0;
-      return;
-    }
-
     if (inGravity) {
-      if (GravityMainThrust == "rear") {
-          worldSpeedUp = -Vector3D.Dot(deltaPosition, Vector3D.Cross(gravity, rightVec)) * speed;
-          worldSpeedRight = -Vector3D.Dot(deltaPosition, -Vector3D.Cross(gravity, upVec)) * speed;
-          worldSpeedForward = Vector3D.Dot(deltaPosition, gravity) * speed;
-        } else {
-          worldSpeedForward = Vector3D.Dot(deltaPosition, Vector3D.Cross(gravity, rightVec)) * speed;
-          worldSpeedRight = Vector3D.Dot(deltaPosition, -Vector3D.Cross(gravity, forwardVec)) * speed;
-          worldSpeedUp = Vector3D.Dot(deltaPosition, gravity) * speed;
-        }
+      worldSpeedForward = Vector3D.Dot(deltaPosition, Vector3D.Cross(gravity, worldOrientation.Right)) * speed;
+      worldSpeedRight = Vector3D.Dot(deltaPosition, -Vector3D.Cross(gravity, worldOrientation.Forward)) * speed;
+      worldSpeedUp = Vector3D.Dot(deltaPosition, gravity) * speed;
     } else {
       worldSpeedForward = 0;
       worldSpeedRight = 0;
       worldSpeedUp = 0;
     }
 
-    if (SpaceMainThrust == "rear") {
-      localSpeedForward = Vector3D.Dot(deltaPosition, forwardVec) * speed;
-      localSpeedRight = Vector3D.Dot(deltaPosition, rightVec) * speed;
-      localSpeedUp = Vector3D.Dot(deltaPosition, upVec) * speed;
+    if (double.IsNaN(deltaPosition.Length())) {
+      localSpeedForward = 0;
+      localSpeedRight = 0;
+      localSpeedUp = 0;
     } else {
-      localSpeedUp = -Vector3D.Dot(deltaPosition, forwardVec) * speed;
-      localSpeedRight = Vector3D.Dot(deltaPosition, rightVec) * speed;
-      localSpeedForward = Vector3D.Dot(deltaPosition, upVec) * speed;
+      localSpeedUp = -Vector3D.Dot(deltaPosition, worldOrientation.Forward) * speed;
+      localSpeedRight = Vector3D.Dot(deltaPosition, worldOrientation.Right) * speed;
+      localSpeedForward = Vector3D.Dot(deltaPosition, worldOrientation.Up) * speed;
     }
   }
 
@@ -409,8 +375,8 @@ class VectorAssist : Module {
     double pitch, tilt;
 
     if (FlightAssist.transPose.inGravity) {
-      pitch = height - Math.Floor((FlightAssist.transPose.pitch / 180) * height) - 1;
-      tilt = Math.Floor(Vector3D.Dot(FlightAssist.transPose.rightVec, FlightAssist.transPose.deltaPosition) * xCenter) + xCenter;
+      pitch = 0; //height - Math.Floor((FlightAssist.transPose.pitch / 180) * height) - 1;
+      tilt = 0; //Math.Floor(Vector3D.Dot(FlightAssist.transPose.rightVec, FlightAssist.transPose.deltaPosition) * xCenter) + xCenter;
       if (FlightAssist.transPose.localSpeedForward < 0)
         tilt = width - tilt;
     } else {
@@ -419,7 +385,7 @@ class VectorAssist : Module {
     }
 
     double roll, horizon, horizonPoint;
-    roll = Math.Asin(Vector3.Dot(FlightAssist.transPose.gravity, FlightAssist.transPose.rightVec)) * RadToDeg;
+    roll = Math.Asin(Vector3.Dot(FlightAssist.transPose.gravity, FlightAssist.transPose.worldOrientation.Right)) * RadToDeg;
     horizonPoint = pitch;
     horizon = pitch;
 
@@ -427,7 +393,7 @@ class VectorAssist : Module {
     for (var y = 0; y < height; y++) {
       output += "       |";
       for (var x = 0; x < width; x++) {
-        var upsideDown = Vector3D.Dot(FlightAssist.transPose.upVec, FlightAssist.transPose.gravity) < 0;
+        var upsideDown = Vector3D.Dot(FlightAssist.transPose.worldOrientation.Up, FlightAssist.transPose.gravity) < 0;
 
         if (FlightAssist.transPose.inGravity) {
           if (EqualWithMargin(roll, 0, 0.01)) {
@@ -486,25 +452,17 @@ class VectorAssist : Module {
       return;
     }
 
-    double desiredPitch, desiredTilt;
-    if (SpaceMainThrust == "rear") {
-      desiredPitch = 180;
-      desiredTilt = 90;
-    } else {
-      desiredPitch = 90;
-      desiredTilt = 90;
-    }
-
     // Activate dampeners when on target, if they aren't already on. Otherwise disable them.
+    double pitch, tilt;
+    FlightAssist.transPose.PitchAndTiltBetweenVectors(FlightAssist.transPose.worldOrientation.Down, FlightAssist.transPose.deltaPosition, out pitch, out tilt);
     if (!FlightAssist.transPose.remote.DampenersOverride && 
-        FlightAssist.transPose.localSpeedForward < 0 && 
-        EqualWithMargin(Math.Abs(FlightAssist.transPose.pitch), desiredPitch, angleThreshold) && 
-        EqualWithMargin(Math.Abs(FlightAssist.transPose.tilt), desiredTilt, angleThreshold)) {
+        EqualWithMargin(pitch, 0, 0.3) &&
+        EqualWithMargin(tilt, 0, 0.3)) { // TODO: Add angleToTarget to TransPose and use here
       FlightAssist.transPose.remote.GetActionWithName("DampenersOverride").Apply(FlightAssist.transPose.remote);
     }
 
     // Approach retrograde orientation
-    FlightAssist.transPose.SetTargetOrientation(FlightAssist.transPose.shipOrientation.Backward, FlightAssist.transPose.deltaPosition);
+    FlightAssist.transPose.SetTargetOrientation(FlightAssist.transPose.shipOrientation.Down, FlightAssist.transPose.deltaPosition);
   }
 }
 
@@ -519,6 +477,8 @@ class HoverAssist : Module {
 
   private double desiredPitch, desiredRoll;
   private float setSpeed;
+
+  private double pitch, tilt;
 
   public HoverAssist(string name) : base(name) {
     alwaysEnabledInGravity = AlwaysEnabledInGravity;
@@ -539,6 +499,8 @@ class HoverAssist : Module {
       hoverEnabled = true;
       FlightAssist.transPose.ToggleGyros(true);
     }
+
+    FlightAssist.transPose.PitchAndTiltBetweenVectors(FlightAssist.transPose.worldOrientation.Forward, FlightAssist.transPose.gravity, out pitch, out tilt);
 
     if (hoverEnabled)
       ExecuteManeuver();
@@ -580,10 +542,10 @@ class HoverAssist : Module {
               "\n  R/L: " + String.Format("{0:000}", FlightAssist.transPose.worldSpeedRight) +
               "\n  U/D: " + String.Format("{0:000}", FlightAssist.transPose.worldSpeedUp) +
               "\n\n----- Orientation ----------------------------------------" +
-              "\nPitch: " + String.Format("{0:00}", FlightAssist.transPose.pitch) + "°" +
-              " | Roll: " + String.Format("{0:00}", FlightAssist.transPose.tilt) + "°" +
+              "\nPitch: " + String.Format("{0:00}", pitch) + "°" +
+              " | Roll: " + String.Format("{0:00}", tilt) + "°" +
               "\nPitch: " + String.Format("{0:00}", desiredPitch) + "°" +
-              " | Roll: " + String.Format("{0:00}", desiredRoll) + "°";;
+              " | Roll: " + String.Format("{0:00}", desiredRoll) + "°";
     }
     return output;
   }
@@ -602,11 +564,11 @@ class HoverAssist : Module {
 
       case "pitch":
         desiredPitch = Math.Atan(FlightAssist.transPose.worldSpeedForward / gyroResponsiveness) / HalfPi * maxPitch;
-        desiredRoll = -(FlightAssist.transPose.tilt - 90);
+        desiredRoll = -(tilt - 90);
         break;
 
       case "roll":
-        desiredPitch = -(FlightAssist.transPose.pitch - 90);
+        desiredPitch = -(pitch - 90);
         desiredRoll = Math.Atan(FlightAssist.transPose.worldSpeedRight / gyroResponsiveness) / HalfPi * maxRoll;
         break;
 
