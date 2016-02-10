@@ -180,8 +180,8 @@ class TransPose : Module {
   public double worldSpeedForward, worldSpeedRight, worldSpeedUp;
   public double localSpeedForward, localSpeedRight, localSpeedUp;
 
-  private Matrix shipOrientation;
-  private Matrix worldOrientation;
+  public Matrix shipOrientation;
+  public Matrix worldOrientation;
   private Vector3D rotationVec;
   public Vector3D forwardVec, rightVec, upVec;
   public double pitch, tilt;
@@ -189,6 +189,8 @@ class TransPose : Module {
   public Vector3D gravity;
   public bool inGravity;
   public bool switchingGravity;
+
+  private Vector3D reference, target;
 
   private double dt = 1000/60;
 
@@ -326,57 +328,33 @@ class TransPose : Module {
     }
   }
 
-  public void ApproachTargetOrientation(double targetPitch, double targetTilt) {
-    var max = gyros[0].GetMaximum<float>("Pitch");
-    double pitchRate, yawRate, rollRate;
-    if (inGravity && GravityMainThrust == "rear")
-      pitchRate = (max * (targetPitch - (pitch * -Math.Sign(Vector3D.Dot(upVec, gravity)))) / 90);
-    else
-      pitchRate = (max * (targetPitch - pitch) / 90);
-    yawRate = (max * (targetTilt - tilt) / 90);
-    rollRate = (gyros[0].GetMaximum<float>("Roll") * (targetTilt - tilt) / 90);
-
-    if (!inGravity) {
-      if (SpaceMainThrust == "bottom")
-        pitchRate = Math.Abs(pitchRate);
-
-      pitchRate *= -Math.Sign(localSpeedUp);
-      rollRate *= Math.Sign(localSpeedForward);
-
-      if (SpaceMainThrust == "bottom" && localSpeedForward > 0) {
-        pitchRate = max - pitchRate;
-        yawRate = max - yawRate;
-        rollRate = gyros[0].GetMaximum<float>("Roll") - rollRate;
-      }
-
-      yawRate *= 1.0f - (float)(pitch / 90);
-      rollRate *= (float)(pitch / 90);
-    } else if (inGravity) {
-      if (GravityMainThrust == "bottom")
-        pitchRate *= -Math.Sign(Vector3D.Dot(upVec, gravity));
-
-      if (GravityMainThrust == "bottom")
-        yawRate *= 0;
-      else
-        rollRate *= 0;
-    }
-
-    rotationVec = new Vector3D(ClampMinRpm(pitchRate), ClampMinRpm(-yawRate), ClampMinRpm(-rollRate));
-    rotationVec = Vector3.Transform(rotationVec, shipOrientation);
+  public void SetTargetOrientation(Vector3D setReference, Vector3D setTarget) {
+    reference = setReference;
+    target = setTarget; 
   }
 
   private void SetGyroRpm() {
     for (int i = 0; i < gyros.Count; i++) {
       var g = gyros[i];
 
-      // Adjust rotation for the gyro's local orientation
       Matrix localOrientation;
       g.Orientation.GetMatrix(out localOrientation);
-      var localRot = Vector3D.Transform(rotationVec, MatrixD.Transpose(localOrientation));
+      var localReference = Vector3D.Transform(reference, MatrixD.Transpose(localOrientation));
+      var localTarget = Vector3D.Transform(target, MatrixD.Transpose(g.WorldMatrix.GetOrientation()));
 
-      g.SetValueFloat("Pitch", (float)localRot.GetDim(0));
-      g.SetValueFloat("Yaw", (float)-localRot.GetDim(1));
-      g.SetValueFloat("Roll", (float)-localRot.GetDim(2));
+      var axis = Vector3D.Cross(localReference, localTarget);
+      var angle = axis.Length();
+      angle = Math.Atan2(angle, Math.Sqrt(Math.Max(0.0, 1.0 - angle * angle)));
+
+      Vector3D scale = new Vector3D(g.GetMaximum<float>("Pitch"), g.GetMaximum<float>("Yaw"), g.GetMaximum<float>("Roll"));
+      scale *= angle / Math.PI * 0.8;
+
+      axis.Normalize();
+      axis *= scale;
+
+      g.SetValueFloat("Pitch", (float)ClampMinRpm(axis.GetDim(0)));
+      g.SetValueFloat("Yaw", (float)ClampMinRpm(-axis.GetDim(1)));
+      g.SetValueFloat("Roll", (float)ClampMinRpm(-axis.GetDim(2)));
     }
   }
 }
@@ -526,7 +504,7 @@ class VectorAssist : Module {
     }
 
     // Approach retrograde orientation
-    FlightAssist.transPose.ApproachTargetOrientation(desiredPitch, desiredTilt);
+    FlightAssist.transPose.SetTargetOrientation(FlightAssist.transPose.shipOrientation.Backward, FlightAssist.transPose.deltaPosition);
   }
 }
 
@@ -603,7 +581,9 @@ class HoverAssist : Module {
               "\n  U/D: " + String.Format("{0:000}", FlightAssist.transPose.worldSpeedUp) +
               "\n\n----- Orientation ----------------------------------------" +
               "\nPitch: " + String.Format("{0:00}", FlightAssist.transPose.pitch) + "°" +
-              " | Roll: " + String.Format("{0:00}", FlightAssist.transPose.tilt) + "°";
+              " | Roll: " + String.Format("{0:00}", FlightAssist.transPose.tilt) + "°" +
+              "\nPitch: " + String.Format("{0:00}", desiredPitch) + "°" +
+              " | Roll: " + String.Format("{0:00}", desiredRoll) + "°";;
     }
     return output;
   }
@@ -622,11 +602,11 @@ class HoverAssist : Module {
 
       case "pitch":
         desiredPitch = Math.Atan(FlightAssist.transPose.worldSpeedForward / gyroResponsiveness) / HalfPi * maxPitch;
-        desiredRoll = FlightAssist.transPose.tilt;
+        desiredRoll = -(FlightAssist.transPose.tilt - 90);
         break;
 
       case "roll":
-        desiredPitch = FlightAssist.transPose.pitch;
+        desiredPitch = -(FlightAssist.transPose.pitch - 90);
         desiredRoll = Math.Atan(FlightAssist.transPose.worldSpeedRight / gyroResponsiveness) / HalfPi * maxRoll;
         break;
 
@@ -641,11 +621,11 @@ class HoverAssist : Module {
         break;
     }
 
-    if (GravityMainThrust == "bottom" && desiredPitch != FlightAssist.transPose.pitch)
-      desiredPitch = 90 - desiredPitch;
-    desiredRoll = 90 - desiredRoll;
+    var quatPitch = Quaternion.CreateFromAxisAngle(FlightAssist.transPose.shipOrientation.Left, (float)(desiredPitch * (Math.PI/180)));
+    var quatRoll = Quaternion.CreateFromAxisAngle(FlightAssist.transPose.shipOrientation.Forward, (float)(desiredRoll * (Math.PI/180)));
+    var reference = Vector3D.Transform(FlightAssist.transPose.shipOrientation.Down, quatPitch * quatRoll);
 
-    FlightAssist.transPose.ApproachTargetOrientation(desiredPitch, desiredRoll);
+    FlightAssist.transPose.SetTargetOrientation(reference, FlightAssist.transPose.remote.GetNaturalGravity());
   }
 }
 
